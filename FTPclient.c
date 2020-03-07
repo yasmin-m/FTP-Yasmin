@@ -15,6 +15,7 @@ int main(int argc, char *argv[])
 { 
 	if (argc != 3){ //if less or more than 3 arguments entered
 		printf("USAGE: ./FTPclient ftpserver-ip-address ftpserver-port-number\n");
+		exit(0);
 	}
 
 	int sockfd; //socket number
@@ -24,6 +25,7 @@ int main(int argc, char *argv[])
 	int PORT = atoi(argv[2]); //set port number to third argument
 	if (PORT == 0){ //ATOI returns zero if it fails
 		printf("USAGE: ./FTPclient ftpserver-ip-address ftpserver-port-number\n");
+		exit(0);
 	}
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0); //Create socket 
@@ -79,7 +81,7 @@ int main(int argc, char *argv[])
 				printf("%s\n",cwd);
 			}
 			else{ //else print error message
-				printf("Command failed: No such file or directory \n");
+				printf("COMMAND FAILED: NO SUCH FILE OR DIRECTORY\n");
 			}
 			continue;
 		}
@@ -104,11 +106,15 @@ int main(int argc, char *argv[])
 		memset(message, 0, sizeof(message)); //reset message buffer
 		recv(sockfd, message, sizeof(message), 0); //recieve message
 
+		if ((strncmp(message, "QUIT1", 5)) == 0) {
+			printf("MAXIMUM CLIENTS REACHED, SERVER UNABLE TO RESPOND\n");
+			break;
+		}
 		if ((strncmp(message, "QUIT", 4)) == 0) { //if server sends quit, disconnect and break
 			printf("SERVER DISCONNECTED\n"); 
 			break; 
 		}
-
+		
 		printf("SERVER: %s", message); //otherwise print server message
 	} 
 

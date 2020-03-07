@@ -9,6 +9,9 @@
 #include <unistd.h>  
 #include <arpa/inet.h> 
 #include <sys/time.h>
+#include <sys/wait.h>
+#include <dirent.h>
+#include <ctype.h>
 
 #define PORT 8000 //Port number
 #define MAX_CLIENTS 10 //Maximum number of clients
@@ -22,9 +25,23 @@ int main()
 	struct sockaddr_in serverAddress; //structure for server address
 	int status; //stores status erors of functions
 	char messBuff[MAX]; //stores messages sent and recieved between clients
+	int authenticate_list[MAX_CLIENTS]; //list of authenticated users
+	char passwords[MAX_CLIENTS][MAX]; //list of passwords for authenticated users
+	char starting_directory[MAX]; //starting directory
+	getcwd(starting_directory, sizeof(starting_directory));
+	char current_directory[MAX_CLIENTS][MAX]; //list of current working directory of each client
 	fd_set fdset; //define fdset for select function
-	
+
 	memset(socket_list, 0, MAX_CLIENTS); //set socket list to 0
+	memset(authenticate_list, 0, MAX_CLIENTS); //empty the list of authenticated users
+
+	for (int i=0; i<MAX_CLIENTS; i++){ //empty the list
+		strcpy(current_directory[i], starting_directory);
+	}
+
+	for (int i=0; i<MAX_CLIENTS; i++){ //empty list of passwords
+		memset(passwords[i], 0, MAX);
+	}
 
 	int firstSocket = socket(AF_INET , SOCK_STREAM , 0); //create a socket
 	if(firstSocket == 0){ //print error message if failed
@@ -50,18 +67,13 @@ int main()
 		exit(0); 
 	}
 	
-	int authenticate_list[MAX_CLIENTS]; //list of authenticated users
-	memset(authenticate_list, 0, MAX_CLIENTS); //empty the list of authenticated users
-	char passwords[MAX_CLIENTS][MAX]; //list of passwords for authenticated users
-	for (int i=0; i<MAX_CLIENTS; i++){ //empty list of passwords
-		memset(passwords[i], 0, MAX);
-	}
 
 	for(;;){ //while connection is on
 		FD_ZERO(&fdset); //zero everything
 		FD_SET(firstSocket, &fdset); //set based on the clients
 		int maxSockDes = firstSocket; //maximum socket descriptor
 		int sockDes; //socket descriptor
+		int connClients; //no of connected clients
 			
 		for (int i=0; i<MAX_CLIENTS; i++){ //update maximum socket descriptor
 			sockDes = socket_list[i];
@@ -85,16 +97,25 @@ int main()
 			if (clientSocket < 0){ //print error
 				printf("ERROR: ACCEPT FAILED\n"); 
 				exit(0); 
-			}  
+			}
+			if (connClients == MAX_CLIENTS){
+				printf("MAXIMUM NUMBER OF CLIENTS REACHED\n");
+				char *sendThis = "QUIT1\n";
+				send(clientSocket, sendThis, strlen(sendThis), 0);
+				close(clientSocket);
+			}
 			
-			printf("NEW CLIENT CONNECTED\n"); //print message
+			else{
+				printf("NEW CLIENT CONNECTED\n"); //print message
+				connClients++;
 
-			for (int i=0; i<MAX_CLIENTS; i++) { //add client to client list
-				if(socket_list[i] == 0) { 
-					socket_list[i] = clientSocket; 
-					break; 
+				for (int i=0; i<MAX_CLIENTS; i++) { //add client to client list
+					if(socket_list[i] == 0) { 
+						socket_list[i] = clientSocket; 
+						break; 
+					}
 				}
-			} 
+			}
 		} 
  
 		for (int i=0; i<MAX_CLIENTS; i++) //loop over all the clients
@@ -105,10 +126,16 @@ int main()
 				
 			if (FD_ISSET(sockDes ,&fdset)){ //if they have something to say
 				int message = read(sockDes, messBuff, MAX); //read the incoming message
+				if (chdir(current_directory[i])){
+					perror("ERROR RETURNING TO BASE DIRECTORY\n");
+					printf("%s\n", current_directory[i]);
+				} //Go back to the directory at before
 				
 				if (message == 0){ //if the message is 0, the client has disconnected
 					printf("CLIENT DISCONNECTED\n");
+					connClients--; //decrement the number of connected clients
 					authenticate_list[i]=0; //remove them from the authenticated user list
+					strcpy(current_directory[i], starting_directory); //reset their current directory
 					memset(passwords[i], 0, MAX); //remove their password
 					close(sockDes); //close their socket
 					socket_list[i] = 0; //remove them from the socket list
@@ -184,7 +211,7 @@ int main()
 							mypass[j] = messBuff[j+5]; //entered password
 						}
 
-						if (strncmp(mypass, passwords[i], strlen(mypass)) == 0){ //password same as stored in array
+						if (!responded && strncmp(mypass, passwords[i], strlen(mypass)) == 0){ //password same as stored in array
 							sendThis = "LOGIN SUCCESSFUL\n";
 							send(sockDes, sendThis, strlen(sendThis), 0);
 							responded = 1;
@@ -216,8 +243,59 @@ int main()
 					responded = 1;
 				}
 
+				if(!responded && authenticate_list[i]==2 && (strncmp(messBuff, "LS", 2)) == 0) {
+					DIR *value; 
+					struct dirent *direct;
+					value = opendir("."); //open the current directory
+					char filelist[MAX];
+					memset(filelist, 0, sizeof(filelist));
+
+					if (value){
+						while ((direct = readdir(value)) != NULL){ //loop over directory and print items
+							strcat(filelist, direct->d_name);
+							strcat(filelist, " ");
+						}
+						strcat(filelist, "\n");
+						send(sockDes, filelist, strlen(filelist), 0);
+						closedir(value); //close directory
+					}
+					responded = 1;
+				}
+
+				if(!responded && authenticate_list[i]==2 && (strncmp(messBuff, "PWD", 3)) == 0) {
+					char cwd[MAX];
+					getcwd(cwd, sizeof(cwd)); //get current working directory
+					strcat(cwd, "\n");
+					send(sockDes, cwd, strlen(cwd), 0);
+					responded = 1;
+				}
+
+				if(!responded && authenticate_list[i]==2 && (strncmp(messBuff, "CD ", 3)) == 0) {
+					char cwd[MAX];
+					char dir[MAX];
+					int size = strlen(messBuff)-4;
+					memset(dir, 0, MAX);
+
+					int c = 0;
+					while (c < size){   //iterate over the message to get the directory
+						dir[c] = messBuff[c+3];
+						c++;
+					}
+					if (chdir(dir) == 0){ //if changed directory worked, print current working directory
+						getcwd(cwd, sizeof(cwd));
+						strcpy(current_directory[i], cwd);
+						strcat(cwd, "\n");
+						send(sockDes, cwd, strlen(cwd), 0);
+					}
+					else{ //else print error message
+						sendThis = "COMMAND FAILED: NO SUCH FILE OR DIRECTORY\n";
+						send(sockDes, sendThis, strlen(sendThis), 0);
+					}
+					responded = 1;
+				}
+
 				if(responded == 0){ //unrecognized command
-					sendThis = "COMMAND NOT RECOGNIZED\n";
+					sendThis = "INVALID FTP COMMAND\n";
 					send(sockDes, sendThis, strlen(sendThis), 0);
 				}
 			} 

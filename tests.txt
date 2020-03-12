@@ -1,0 +1,25 @@
+Assumptions:
+	- The userinfo.txt file is always in the correct format
+	- Once the user has logged in, they cannot log out, or change user
+	- Once the user has entered a username, they cannot change it
+	- Multiple clients can use the same username and password
+	- Messages do not need to exceed 1024 bytes (that includes directory names, usernames and passwords)
+	- 
+
+Format of the userinfo.txt file:
+	A set of username and password pairs. Each pair is on a seperate line. The pairs are 
+	seperated by one white space ' '. There is an extra blank line at the end. 
+	Example:
+		user-one pass-one
+		user-two pass-two
+
+Testing USER and PASS:
+	To ensure USER and PASS work correctly, multiple cases have been tested:
+		- Inputting any command before USER returns an error
+		- Inputting any command after USER and before PASS returns an error
+		- Inputting an incorrect username not in the file returns an error
+		- Inputting a username with blank spaces returns an error
+		- Inputting a password with blank spaces returns an error
+		- Inputting a password not corresponding to the inputted username results in an error
+		- Usernames and passwords both accept special characters, but not spaces
+		- First, last and middle usernames and passwords in userinfo.txt all work

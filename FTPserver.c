@@ -10,14 +10,45 @@
 #include <arpa/inet.h> 
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <sys/sendfile.h>
+#include <fcntl.h>
 
 #define PORT 8000 //Port number
+#define PORT2 8005 //Port of second TCP connection
 #define MAX_CLIENTS 10 //Maximum number of clients
 #define IP_ADDRESS "127.0.0.1" //IP address
 #define USER_AND_PASS "userinfo.txt" //text file with usernames and passwords
 #define MAX 1024 //maximum buffer size
+
+int setNewConnection(int portNum, struct sockaddr_in serverAddress){
+	int status;
+	int mysocket = socket(AF_INET , SOCK_STREAM , 0); //create a socket
+	
+	if(mysocket == 0){ //print error message if failed
+		printf("ERROR: SOCKET CREATION FAILED\n"); 
+		return -1; 
+	}
+
+	serverAddress.sin_family = AF_INET; //server connection setup
+	serverAddress.sin_addr.s_addr = inet_addr(IP_ADDRESS); 
+	serverAddress.sin_port = htons(portNum);
+
+	status = bind(mysocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)); //bind the socket	
+	if (status != 0){ //Print error message 
+		printf("ERROR: BINDING FAILED\n"); 
+		return -1; 
+	}
+
+	status = listen(mysocket, 5); //listen for up to 5 at a time
+	if (status != 0){ //print error message
+		printf("ERROR: LISTENING FAILED\n"); 
+		return -1;
+	}
+	return (mysocket);
+}
 
 int main() 
 {
@@ -28,13 +59,14 @@ int main()
 	int authenticate_list[MAX_CLIENTS]; //list of authenticated users
 	char passwords[MAX_CLIENTS][MAX]; //list of passwords for authenticated users
 	char starting_directory[MAX]; //starting directory
-	getcwd(starting_directory, sizeof(starting_directory));
 	char current_directory[MAX_CLIENTS][MAX]; //list of current working directory of each client
 	fd_set fdset; //define fdset for select function
+	pid_t childpid; //child PID
 
 	memset(socket_list, 0, MAX_CLIENTS); //set socket list to 0
 	memset(authenticate_list, 0, MAX_CLIENTS); //empty the list of authenticated users
-
+	
+	getcwd(starting_directory, sizeof(starting_directory)); //store current working directory
 	for (int i=0; i<MAX_CLIENTS; i++){ //empty the list
 		strcpy(current_directory[i], starting_directory);
 	}
@@ -43,30 +75,12 @@ int main()
 		memset(passwords[i], 0, MAX);
 	}
 
-	int firstSocket = socket(AF_INET , SOCK_STREAM , 0); //create a socket
-	if(firstSocket == 0){ //print error message if failed
-		printf("ERROR: SOCKET CREATION FAILED\n"); 
-		exit(0); 
-	}
-
-	serverAddress.sin_family = AF_INET; //server connection setup
-	serverAddress.sin_addr.s_addr = inet_addr(IP_ADDRESS); 
-	serverAddress.sin_port = htons(PORT);
-	
-	status = bind(firstSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)); //bind the socket	
-	if (status != 0){ //Print error message 
-		printf("ERROR: BINDING FAILED\n"); 
-		exit(0); 
+	int firstSocket = setNewConnection(PORT, serverAddress);
+	if (firstSocket == -1){
+		exit(0);
 	}
 
 	printf("SERVER READY\n"); //server bound and preparing to listen
-
-	status = listen(firstSocket, 5); //listen for up to 5 at a time
-	if (status != 0){ //print error message
-		printf("ERROR: LISTENING FAILED\n"); 
-		exit(0); 
-	}
-	
 
 	for(;;){ //while connection is on
 		FD_ZERO(&fdset); //zero everything
@@ -91,13 +105,13 @@ int main()
 		int len = sizeof(serverAddress); //define lne
 	
 		status = FD_ISSET(firstSocket, &fdset); //if someone is listening, accept connection
-		if (status) 
-		{
+		if (status){
 			int clientSocket = accept(firstSocket, (struct sockaddr*)&serverAddress, (socklen_t*)&len); //accpet client
 			if (clientSocket < 0){ //print error
 				printf("ERROR: ACCEPT FAILED\n"); 
 				exit(0); 
 			}
+
 			if (connClients == MAX_CLIENTS){
 				printf("MAXIMUM NUMBER OF CLIENTS REACHED\n");
 				char *sendThis = "QUIT1\n";
@@ -143,7 +157,7 @@ int main()
 				}
 
 				// if they typed USER and a response hasn't already been sent
-				if(responded == 0 && (strncmp(messBuff, "USER ", 5)) == 0 && strlen(messBuff)>7){
+				if(!responded && (strncmp(messBuff, "USER ", 5)) == 0 && strlen(messBuff)>7){
 					//if they haven't been authenticated
 					if (authenticate_list[i]==0){
 						char myuser[MAX];
@@ -167,8 +181,7 @@ int main()
 						char str[MAX];
 						if(!responded){ //if no response has been issued
 							while (fgets(str, sizeof(str), userpass)){ //compare username to file
-								if (strncmp(myuser, str, strlen(myuser)) == 0){ //if found
-									
+								if (strncmp(myuser, str, strlen(myuser)) == 0 && str[strlen(myuser)] == ' '){ //if found
 									sendThis = "USERNAME OK, PASSWORD REQUIRED\n";
 									send(sockDes, sendThis, strlen(sendThis), 0); 
 									authenticate_list[i]=1;
@@ -211,7 +224,7 @@ int main()
 							mypass[j] = messBuff[j+5]; //entered password
 						}
 
-						if (!responded && strncmp(mypass, passwords[i], strlen(mypass)) == 0){ //password same as stored in array
+						if (!responded && strncmp(mypass, passwords[i], strlen(mypass)) == 0 && strlen(mypass) == strlen(passwords[i])){ //password same as stored in array
 							sendThis = "LOGIN SUCCESSFUL\n";
 							send(sockDes, sendThis, strlen(sendThis), 0);
 							responded = 1;
@@ -231,13 +244,13 @@ int main()
 					}
 				}
 
-				if(responded == 0 && authenticate_list[i]==0){ //if anything else is entered before authentication
+				if(!responded && authenticate_list[i]==0){ //if anything else is entered before authentication
 					sendThis = "ENTER USERNAME FIRST\n";
 					send(sockDes, sendThis, strlen(sendThis), 0); 
 					responded = 1;
 				}
 
-				if(responded == 0 && authenticate_list[i]==1){ //if anything else is entered before authentication
+				if(!responded && authenticate_list[i]==1){ //if anything else is entered before authentication
 					sendThis = "PASSWORD AUTHENTICATION PENDING\n";
 					send(sockDes, sendThis, strlen(sendThis), 0);
 					responded = 1;
@@ -267,6 +280,135 @@ int main()
 					getcwd(cwd, sizeof(cwd)); //get current working directory
 					strcat(cwd, "\n");
 					send(sockDes, cwd, strlen(cwd), 0);
+					responded = 1;
+				}
+
+				if(!responded && authenticate_list[i]==2 && (strncmp(messBuff, "GET ", 4)) == 0) {
+					char filename[MAX];
+					memset(filename, 0, MAX);
+					struct stat st;
+
+					int c = 0;
+					while (c < strlen(messBuff)-5){   //iterate over the message to get the directory
+						filename[c] = messBuff[c+4];
+						c++;
+					}
+
+					int fileDes = open(filename, O_RDONLY); //open the list of usernames and passwords
+					if (fileDes == -1){
+						sendThis = "ERROR: FILE DOES NOT EXIST\n";
+						send(sockDes, sendThis, strlen(sendThis), 0);
+						responded = 1;
+					}
+
+					if(!responded){
+						if((childpid = fork()) == 0){
+
+							int secondSocket = setNewConnection(PORT2, serverAddress);
+							if (secondSocket < 0){
+								sendThis = "ERROR CREATING NEW TCP CONNECTION\n";
+								send(sockDes, sendThis, strlen(sendThis), 0);
+								exit(0);
+							}
+
+							char strPORT[5];
+							sprintf(strPORT, "%d", PORT2);
+							send(sockDes, strPORT, strlen(strPORT), 0);
+
+							int connfd = accept(secondSocket, (struct sockaddr*)&serverAddress, (socklen_t*)&len);
+
+							if (connfd < 0) { 
+	        					printf("SERVER ACCEPT FAILED\n");
+	        					close(secondSocket);
+	        					return 0;
+	    					}
+	    					else{
+	        					if (fstat(fileDes, &st) < 0){
+	        						printf("ERROR AQUIRING FILE SIZE\n");
+	        						close(connfd);
+	        						close(secondSocket);
+	        						return 0;
+	        					}
+
+	        					char filesize[MAX];
+	        					sprintf(filesize, "%ld", st.st_size);
+	        					send(connfd, filesize, sizeof(filesize), 0);
+
+	        					off_t offset = 0;
+	        					int remaining = st.st_size;
+	        					int bytesSent;
+	        					printf("FILE TRANSFER BEGIN\n");
+	        					while((bytesSent = sendfile(connfd, fileDes, &offset, MAX) > 0) && (remaining > 0)){
+	        						remaining -= bytesSent;
+	        					}
+	        					printf("FILE TRANSFER ENDS\n");
+	        					close(fileDes);
+	        					close(connfd);
+	        					close(secondSocket);
+	        					return 0;
+	    					}
+    					}
+    					close(fileDes);
+					}
+					responded = 1;
+				}
+
+				if(!responded && authenticate_list[i]==2 && (strncmp(messBuff, "PUT ", 4)) == 0) {
+					if((childpid = fork()) == 0){
+						FILE *myfile;
+						int secondSocket = setNewConnection(PORT2, serverAddress);
+						if (secondSocket < 0){
+							sendThis = "ERROR CREATING NEW TCP CONNECTION\n";
+							send(sockDes, sendThis, strlen(sendThis), 0);
+							exit(0);
+						}
+
+						char strPORT[5];
+						sprintf(strPORT, "%d", PORT2);
+						send(sockDes, strPORT, strlen(strPORT), 0);
+						
+						int connfd = accept(secondSocket, (struct sockaddr*)&serverAddress, (socklen_t*)&len);
+
+						if (connfd < 0) { 
+        					printf("SERVER ACCEPT FAILED\n");
+        					close(secondSocket);
+        					return 0;
+    					}
+
+						char filename[MAX];
+						memset(filename, 0, MAX);
+
+						int c = 0;
+						while (c < strlen(messBuff)-5){
+							filename[c] = messBuff[c+4];
+							c++;
+						}
+
+						recv(connfd, messBuff, sizeof(messBuff), 0);
+						int filesize = atoi(messBuff);
+
+						myfile = fopen(filename, "w");
+						if (myfile == NULL){
+							printf("FAILED TO OPEN FILE\n");
+							close(connfd);
+							close(secondSocket);
+							exit(0);
+						}
+						
+						int remaining = filesize;
+
+						printf("FILE TRANSFER BEGIN\n");
+						while ((remaining > 0) && (len = recv(connfd, messBuff, sizeof(messBuff), 0)) > 0){
+							fwrite(messBuff, sizeof(char), len, myfile);
+							remaining -= len;
+						}
+						printf("FILE TRANSFER END\n");
+
+						fclose(myfile);
+						close(connfd);
+						close(secondSocket);
+						return 0;
+					}
 					responded = 1;
 				}
 

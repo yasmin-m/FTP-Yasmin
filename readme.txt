@@ -34,4 +34,5 @@ information is stored in userinfo.txt. Commands that do not require the server
  - !CD directory   - Change current client directory
  - QUIT			   - Exit
 
+To close FTPserver, use CTRL+C.
  

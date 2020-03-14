@@ -1,10 +1,19 @@
-Assumptions:
+Assumptions (Things I don't check for cause I assume they are the case):
 	- The userinfo.txt file is always in the correct format
+	- The userinfo.txt file is always in the same folder as the FTPserver file
 	- Once the user has logged in, they cannot log out, or change user
 	- Once the user has entered a username, they cannot change it
 	- Multiple clients can use the same username and password
 	- Messages do not need to exceed 1024 bytes (that includes directory names, usernames and passwords)
-	- 
+	- No flags follow the CD, LS or PWD commands
+	- All commands must be in uppercase
+	- File is not transferred if file exisists with the same name
+	- The starting directories for the client and server are the directories they are in
+
+General tests:
+	- Valgrind was used to check for memory leaks, and returned that all heap blocks are freed,
+	  no memory leaks possible.
+	- FTPclient and FTPserver are compiled with -Wall and -Wextra and returns no errors
 
 Format of the userinfo.txt file:
 	A set of username and password pairs. Each pair is on a seperate line. The pairs are 
@@ -15,11 +24,31 @@ Format of the userinfo.txt file:
 
 Testing USER and PASS:
 	To ensure USER and PASS work correctly, multiple cases have been tested:
-		- Inputting any command before USER returns an error
-		- Inputting any command after USER and before PASS returns an error
+		- Inputting any command before USER returns an error, except !CD, !PWD and !LS
+		- Inputting any command after USER and before PASS returns an error, except !CD, !PWD and !LS
 		- Inputting an incorrect username not in the file returns an error
 		- Inputting a username with blank spaces returns an error
 		- Inputting a password with blank spaces returns an error
 		- Inputting a password not corresponding to the inputted username results in an error
 		- Usernames and passwords both accept special characters, but not spaces
 		- First, last and middle usernames and passwords in userinfo.txt all work
+		- Inputting a substring of the username or password does not work
+		- When a client exits, they are logged out
+		- Other clients logging in and out does not affect the current clients
+
+Testing directory navigation (CD, !CD, PWD, !PWD, LS, !LS):
+	To ensure all of the directory navigation commands work correctly, different/random combinations of 
+	CD, !CD, PWD, !PWD, LS, !LS were used and compared to the outputs given by performing the same sequence
+	of commands in a unix shell. It was also checked that performing a CD or !CD in one client did not affect
+	the current working directory of another client.
+
+Testing GET and PUT:
+	GET and PUT were tested various files, including a short text file, a 50 MB video file (.flv) and a picture file (.jpg).
+	A hash was performed on each file to ensure no bytes were lost during transfer (md5sum was used). Multiple GET
+	and PUT commands were tested in succession, on the same file, with no issues.
+
+Known Issues:
+	- I have been unable to set up a sig_handler for the server. Therefore, if the server is terminated using ctrl+c before
+	  all the clients have quit, the client sockets will not be closed.
+
+

@@ -18,7 +18,7 @@
 
 #define MAX 1024 //max buffer sizes
 
-int setNewConnection(int portNum, struct sockaddr_in serverAddress, char *IP_ADDRESS){
+int setNewConnection(int portNum, struct sockaddr_in serverAddress, char *IP_ADDRESS){ //function sets up new connection to server
 	int status;
 	int mysocket = socket(AF_INET , SOCK_STREAM , 0); //create a socket
 
@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	pid_t childpid;
+	pid_t childpid; //Child pid
 	int sockfd, secondSocket; //socket number
 	int status; //temporarily stores status messages
 	struct sockaddr_in serverAddress; //server address structure
@@ -62,8 +62,8 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	sockfd = setNewConnection(PORT, serverAddress, argv[1]);
-	if (sockfd == -1){
+	sockfd = setNewConnection(PORT, serverAddress, argv[1]); //set up new connection
+	if (sockfd == -1){ //if error occurs, return
 		return 0;
 	}
 	 
@@ -120,11 +120,11 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		if((strncmp(message, "GET ", 4)) == 0){
-			send(sockfd, message, sizeof(message), 0);
+		if((strncmp(message, "GET ", 4)) == 0){ //if get is entered
+			send(sockfd, message, sizeof(message), 0); //send the message over
 			
-			char filename[MAX];
-			memset(filename, 0, MAX);
+			char filename[MAX]; //stores filename
+			memset(filename, 0, MAX); //reset
 
 			int c = 0;
 			while (c < strlen(message)-5){   //iterate over the message to get the directory
@@ -132,107 +132,109 @@ int main(int argc, char *argv[])
 				c++;
 			}
 
-			memset(message, 0, sizeof(message));
-			recv(sockfd, message, sizeof(message), 0);
+			int fileDes = open(filename, O_RDONLY); //open the file based on filename recieved
+			if (fileDes != -1){
+				printf("FILE NAME EXISTS, PLEASE RENAME FILE AND TRY AGAIN\n");
+				continue;
+			}
 
-			if (strlen(message) > 10){
+			memset(message, 0, sizeof(message)); //reset message buffer
+			recv(sockfd, message, sizeof(message), 0); //recieve either port number or error from server
+
+			if (strlen(message) > 10){ //if it's an error, print if and go to next loop
 				printf("SERVER: %s", message);
 				continue;
 			}
 
-			if((childpid = fork()) == 0){
-				int PORT = atoi(message);
+			if((childpid = fork()) == 0){ //fork to set up new tcp connection
+				int PORT = atoi(message); //Get port number
 				ssize_t len;
-				secondSocket = setNewConnection(PORT, serverAddress, argv[1]);
+				secondSocket = setNewConnection(PORT, serverAddress, argv[1]); //set up connection to server
 
-				memset(message, 0, sizeof(message));
+				memset(message, 0, sizeof(message)); //reset message buffer
 				
-				recv(secondSocket, message, sizeof(message), 0);
-				int filesize = atoi(message);
+				recv(secondSocket, message, sizeof(message), 0); //recieve file size
+				int filesize = atoi(message); //store as int
 
-				myfile = fopen(filename, "w");
-				if (myfile == NULL){
+				myfile = fopen(filename, "w"); //open the file to write
+				if (myfile == NULL){ //if you file to open file, end file transfer
 					printf("FAILED TO OPEN FILE\n");
 					close(secondSocket);
 					exit(0);
 				}
 				
-				int remaining = filesize;
-				printf("FILE TRANSFER BEGINS\n");
+				int remaining = filesize; //remaining bytes in file
 				
-				while ((remaining > 0) && (len = recv(secondSocket, message, sizeof(message), 0)) > 0){
+				while ((remaining > 0) && (len = recv(secondSocket, message, sizeof(message), 0)) > 0){ //while not all bytes are sent
 					fwrite(message, sizeof(char), len, myfile);
 					remaining -= len;
 				}
 
-				fclose(myfile);
+				fclose(myfile); //close file
 				printf("FILE TRANSFER SUCCESSFUL\n");
-				close(secondSocket);
-				return 0;
+				printf("ftp> ");
+				close(secondSocket); //close second tcp connection
+				return 0; //end child process
 			}
-			continue;
+			continue; //move onto next loop
 		}
 
-		if((strncmp(message, "PUT ", 4)) == 0){
-			char filename[MAX];
-			memset(filename, 0, MAX);
+		if((strncmp(message, "PUT ", 4)) == 0){ //if put is entered
+			char filename[MAX]; //stores file name
+			memset(filename, 0, MAX); //reset data stored in here
 
 			int c = 0;
 			while (c < strlen(message)-5){
 				filename[c] = message[c+4];
 				c++;
-			}
+			} //get filename
 
 			int fileDes = open(filename, O_RDONLY);
 			if (fileDes == -1){
 				printf("ERROR: FILE DOES NOT EXIST\n");
 				continue;
-			}
+			} //open the file and check if it exists
 
-			send(sockfd, message, sizeof(message), 0);
-			char message2[MAX];
-			memset(message2, 0, sizeof(message2));
-			recv(sockfd, message2, sizeof(message2), 0);
+			send(sockfd, message, sizeof(message), 0); //if it exists, send command to server
+			char message2[MAX]; //new message buffer
+			memset(message2, 0, sizeof(message2)); 
+			recv(sockfd, message2, sizeof(message2), 0); //recieve port number or error message
 
-			if (strlen(message2) > 10){
+			if (strlen(message2) > 10){ //if greater than 10, then its an error message
 				printf("SERVER: %s", message2);
 				continue;
 			}
 
-			if((childpid = fork()) == 0){
+			if((childpid = fork()) == 0){ //fork child process
 				struct stat st;
 				int PORT = atoi(message2);
 				ssize_t len;
-				secondSocket = setNewConnection(PORT, serverAddress, argv[1]);
-				if (secondSocket == -1){
-					send(sockfd, "QUIT", 4, 0);
-					exit(0);
-				}
-				
+				secondSocket = setNewConnection(PORT, serverAddress, argv[1]); //set up a new connection to server
+
 				if (fstat(fileDes, &st) < 0){
 					printf("ERROR AQUIRING FILE SIZE\n");
 					close(secondSocket);
 					return 0;
-	        	}
+	        	} //if error occured aquiring file size, then end connection
 
-	        	char filesize[MAX];
-				sprintf(filesize, "%ld", st.st_size);
-				send(secondSocket, filesize, sizeof(filesize), 0);
+	        	char filesize[MAX]; //stores filesize
+				sprintf(filesize, "%ld", st.st_size); //get filesize and convert to string
+				send(secondSocket, filesize, sizeof(filesize), 0); //send filesize
 
-				off_t offset = 0;
+				off_t offset = 0; //beginning of file
 				int remaining = st.st_size;
 				int bytesSent;
-				printf("FILE TRANSFER BEGIN\n");
 				while((bytesSent = sendfile(secondSocket, fileDes, &offset, MAX) > 0) && (remaining > 0)){
 					remaining -= bytesSent;
 				}
-				printf("FILE TRANSFER SUCCESSFUL\n");
-				close(fileDes);
-				close(secondSocket);
-				return 0;
+				printf("FILE TRANSFER SUCCESSFUL\n"); //file transfer end
+				printf("ftp> ");
+				close(fileDes); //close file descriptor
+				close(secondSocket); //close second tcp connection
+				return 0; //end child process
 			}
-			close(fileDes);
-			continue;
+			close(fileDes); //close file descriptor in parent process
+			continue; //move onto next command
 		}
 
 		send(sockfd, message, sizeof(message), 0); //any other message, send to socket
@@ -240,7 +242,7 @@ int main(int argc, char *argv[])
 		memset(message, 0, sizeof(message)); //reset message buffer
 		recv(sockfd, message, sizeof(message), 0); //recieve message
 
-		if ((strncmp(message, "QUIT1", 5)) == 0) {
+		if ((strncmp(message, "QUIT1", 5)) == 0) { //if quit1 recieved, then max number of clients reached
 			printf("MAXIMUM CLIENTS REACHED, SERVER UNABLE TO RESPOND\n");
 			break;
 		}

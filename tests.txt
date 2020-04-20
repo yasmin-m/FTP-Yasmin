@@ -1,4 +1,4 @@
-Assumptions (Things I don't check for cause I assume they are the case):
+Assumptions (Things I don't check for because I assume they are the case):
 	- The userinfo.txt file is always in the correct format
 	- The userinfo.txt file is always in the same folder as the FTPserver file
 	- Once the user has logged in, they cannot log out, or change user
@@ -7,7 +7,7 @@ Assumptions (Things I don't check for cause I assume they are the case):
 	- Messages do not need to exceed 1024 bytes (that includes directory names, usernames and passwords)
 	- No flags follow the CD, LS or PWD commands
 	- All commands must be in uppercase
-	- File is not transferred if file exisists with the same name
+	- File is not transferred if file exists with the same name
 	- The starting directories for the client and server are the directories they are in
 
 General tests:
